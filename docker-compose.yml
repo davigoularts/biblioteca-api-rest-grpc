@@ -1,0 +1,21 @@
+services:
+  biblioteca-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: biblioteca-api:1.0.0
+    container_name: biblioteca-api
+    ports:
+      - "8080:8080"   # REST + Swagger
+      - "8081:8081"   # gRPC (h2c)
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Portas__Rest: "8080"
+      Portas__Grpc: "8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3

@@ -1,0 +1,700 @@
+{
+  "info": {
+    "name": "Biblioteca API (REST)",
+    "_postman_id": "a7f3c1e2-5b4d-4c8a-9e1f-0d2b6c7a8e90",
+    "description": "Gestão de acervo (Categorias e Livros) exposta por REST e gRPC sobre o mesmo domínio.\n\n**Como usar**\n1. Suba a API: `docker compose up --build`\n2. Importe esta coleção e o environment `Biblioteca.postman_environment.json`\n3. Rode a pasta `01 - Fluxo felizes` e depois `02 - Regras de negócio (erros)` no Collection Runner\n\nA pasta de erros valida os status: **400** (validação), **404** (não encontrado) e **409** (duplicado / regra de negócio).\n\nO lado gRPC é testado pela aba **New > gRPC Request** do Postman apontando para `localhost:8081` (a API expõe server reflection). Veja o README.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "categoriaAtivaId", "value": "11111111-1111-1111-1111-111111111111" },
+    { "key": "categoriaLiteraturaId", "value": "22222222-2222-2222-2222-222222222222" },
+    { "key": "categoriaInativaId", "value": "33333333-3333-3333-3333-333333333333" },
+    { "key": "livroCleanArchId", "value": "aaaaaaaa-0000-0000-0000-000000000001" },
+    { "key": "livroDddId", "value": "aaaaaaaa-0000-0000-0000-000000000002" },
+    { "key": "livroGrandeSertaoId", "value": "bbbbbbbb-0000-0000-0000-000000000002" },
+    { "key": "idInexistente", "value": "99999999-9999-9999-9999-999999999999" },
+    { "key": "categoriaCriadaId", "value": "" },
+    { "key": "livroCriadoId", "value": "" },
+    { "key": "isbnNovo", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "00 - Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Fluxos felizes",
+      "item": [
+        {
+          "name": "GET /api/categorias",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const corpo = pm.response.json();",
+                  "pm.test('traz as 3 categorias da carga inicial', () => pm.expect(corpo.length).to.be.at.least(3));",
+                  "pm.test('categoria inativa existe na base', () => pm.expect(corpo.some(c => c.id === pm.collectionVariables.get('categoriaInativaId') && c.ativa === false)).to.be.true);",
+                  "pm.test('totalLivros vem calculado', () => pm.expect(corpo.find(c => c.id === pm.collectionVariables.get('categoriaAtivaId')).totalLivros).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/categorias", "host": ["{{baseUrl}}"], "path": ["api", "categorias"] }
+          }
+        },
+        {
+          "name": "GET /api/categorias?apenasAtivas=true",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('todas ativas', () => pm.response.json().forEach(c => pm.expect(c.ativa).to.be.true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias?apenasAtivas=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias"],
+              "query": [{ "key": "apenasAtivas", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "POST /api/categorias (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('nomeCategoria', 'Ficção Científica ' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('devolve header Location', () => pm.expect(pm.response.headers.has('Location')).to.be.true);",
+                  "const corpo = pm.response.json();",
+                  "pm.collectionVariables.set('categoriaCriadaId', corpo.id);",
+                  "pm.test('nasce ativa', () => pm.expect(corpo.ativa).to.be.true);",
+                  "pm.test('sem livros', () => pm.expect(corpo.totalLivros).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"{{nomeCategoria}}\",\n  \"descricao\": \"Distopias, space opera e afins.\",\n  \"ativa\": true\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/categorias", "host": ["{{baseUrl}}"], "path": ["api", "categorias"] }
+          }
+        },
+        {
+          "name": "GET /api/categorias/{id}",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('id confere', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('categoriaCriadaId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaCriadaId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaCriadaId}}"]
+            }
+          }
+        },
+        {
+          "name": "PUT /api/categorias/{id}",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('descrição atualizada', () => pm.expect(pm.response.json().descricao).to.include('atualizada'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"{{nomeCategoria}}\",\n  \"descricao\": \"Descrição atualizada pelo Postman.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaCriadaId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaCriadaId}}"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/livros (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const sufixo = String(Date.now()).slice(-9);",
+                  "pm.collectionVariables.set('isbnNovo', '978' + sufixo + '1');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const corpo = pm.response.json();",
+                  "pm.collectionVariables.set('livroCriadoId', corpo.id);",
+                  "pm.test('categoria resolvida no retorno', () => pm.expect(corpo.categoriaNome).to.be.a('string').and.not.empty);",
+                  "pm.test('3 exemplares disponíveis', () => pm.expect(corpo.exemplaresDisponiveis).to.eql(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"Padrões de Arquitetura de Aplicações Corporativas\",\n  \"autor\": \"Martin Fowler\",\n  \"isbn\": \"{{isbnNovo}}\",\n  \"anoPublicacao\": 2002,\n  \"categoriaId\": \"{{categoriaAtivaId}}\",\n  \"totalExemplares\": 3\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/livros", "host": ["{{baseUrl}}"], "path": ["api", "livros"] }
+          }
+        },
+        {
+          "name": "GET /api/livros?categoriaId=...",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const alvo = pm.collectionVariables.get('categoriaAtivaId');",
+                  "pm.test('filtro respeitado', () => pm.response.json().forEach(l => pm.expect(l.categoriaId).to.eql(alvo)));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros?categoriaId={{categoriaAtivaId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros"],
+              "query": [{ "key": "categoriaId", "value": "{{categoriaAtivaId}}" }]
+            }
+          }
+        },
+        {
+          "name": "GET /api/livros?termo=machado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('encontra Dom Casmurro', () => pm.expect(pm.response.json().some(l => l.titulo === 'Dom Casmurro')).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros?termo=machado",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros"],
+              "query": [{ "key": "termo", "value": "machado" }]
+            }
+          }
+        },
+        {
+          "name": "POST /api/livros/{id}/emprestimos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const corpo = pm.response.json();",
+                  "pm.test('1 exemplar emprestado', () => pm.expect(corpo.exemplaresEmprestados).to.eql(1));",
+                  "pm.test('2 disponíveis', () => pm.expect(corpo.exemplaresDisponiveis).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros/{{livroCriadoId}}/emprestimos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros", "{{livroCriadoId}}", "emprestimos"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/livros/{id}/devolucoes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('voltou para 0 emprestados', () => pm.expect(pm.response.json().exemplaresEmprestados).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros/{{livroCriadoId}}/devolucoes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros", "{{livroCriadoId}}", "devolucoes"]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/categorias/{id}/inativar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('ficou inativa', () => pm.expect(pm.response.json().ativa).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaCriadaId}}/inativar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaCriadaId}}", "inativar"]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/categorias/{id}/ativar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('voltou a ativa', () => pm.expect(pm.response.json().ativa).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaCriadaId}}/ativar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaCriadaId}}", "ativar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Regras de negócio (erros)",
+      "item": [
+        {
+          "name": "R1 - 409: livro em categoria INATIVA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "const corpo = pm.response.json();",
+                  "pm.test('ProblemDetails com código de domínio', () => pm.expect(corpo.codigo).to.eql('REGRA_DE_NEGOCIO'));",
+                  "pm.test('regra identificada', () => pm.expect(corpo.regra).to.eql('LIVRO_CATEGORIA_INATIVA'));",
+                  "pm.test('detalhe explica o motivo', () => pm.expect(corpo.detail).to.include('inativa'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"Revista Byte - Edição 1990\",\n  \"autor\": \"Diversos\",\n  \"isbn\": \"0360528401\",\n  \"anoPublicacao\": 1990,\n  \"categoriaId\": \"{{categoriaInativaId}}\",\n  \"totalExemplares\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/livros", "host": ["{{baseUrl}}"], "path": ["api", "livros"] }
+          }
+        },
+        {
+          "name": "R2 - 409: inativar categoria com empréstimo ativo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('regra identificada', () => pm.expect(pm.response.json().regra).to.eql('CATEGORIA_COM_EMPRESTIMO_ATIVO'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaLiteraturaId}}/inativar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaLiteraturaId}}", "inativar"]
+            }
+          }
+        },
+        {
+          "name": "R3 - 409: remover categoria com livros",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('regra identificada', () => pm.expect(pm.response.json().regra).to.eql('CATEGORIA_COM_LIVROS_VINCULADOS'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaAtivaId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaAtivaId}}"]
+            }
+          }
+        },
+        {
+          "name": "R4 - 409: ISBN duplicado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('código DUPLICADO', () => pm.expect(pm.response.json().codigo).to.eql('DUPLICADO'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"Clean Architecture (cópia)\",\n  \"autor\": \"Robert C. Martin\",\n  \"isbn\": \"978-0-13-449416-6\",\n  \"anoPublicacao\": 2017,\n  \"categoriaId\": \"{{categoriaAtivaId}}\",\n  \"totalExemplares\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/livros", "host": ["{{baseUrl}}"], "path": ["api", "livros"] }
+          }
+        },
+        {
+          "name": "R6 - 409: emprestar sem exemplar disponível",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('regra identificada', () => pm.expect(pm.response.json().regra).to.eql('LIVRO_SEM_EXEMPLAR_DISPONIVEL'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros/{{livroGrandeSertaoId}}/emprestimos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros", "{{livroGrandeSertaoId}}", "emprestimos"]
+            }
+          }
+        },
+        {
+          "name": "R8 - 409: remover livro emprestado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('regra identificada', () => pm.expect(pm.response.json().regra).to.eql('LIVRO_COM_EMPRESTIMO_ATIVO'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros/{{livroGrandeSertaoId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros", "{{livroGrandeSertaoId}}"]
+            }
+          }
+        },
+        {
+          "name": "404: categoria inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('código NAO_ENCONTRADO', () => pm.expect(pm.response.json().codigo).to.eql('NAO_ENCONTRADO'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{idInexistente}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{idInexistente}}"]
+            }
+          }
+        },
+        {
+          "name": "404: livro em categoria inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('menciona Categoria', () => pm.expect(pm.response.json().detail).to.include('Categoria'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"Livro órfão\",\n  \"autor\": \"Ninguém\",\n  \"isbn\": \"9790000000001\",\n  \"anoPublicacao\": 2020,\n  \"categoriaId\": \"{{idInexistente}}\",\n  \"totalExemplares\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/livros", "host": ["{{baseUrl}}"], "path": ["api", "livros"] }
+          }
+        },
+        {
+          "name": "400: validação com erros por campo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const corpo = pm.response.json();",
+                  "pm.test('código VALIDACAO', () => pm.expect(corpo.codigo).to.eql('VALIDACAO'));",
+                  "pm.test('acusa título', () => pm.expect(corpo.erros).to.have.property('titulo'));",
+                  "pm.test('acusa isbn', () => pm.expect(corpo.erros).to.have.property('isbn'));",
+                  "pm.test('acusa totalExemplares', () => pm.expect(corpo.erros).to.have.property('totalExemplares'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"  \",\n  \"autor\": \"Alguém\",\n  \"isbn\": \"123\",\n  \"anoPublicacao\": 1200,\n  \"categoriaId\": \"{{categoriaAtivaId}}\",\n  \"totalExemplares\": 0\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/livros", "host": ["{{baseUrl}}"], "path": ["api", "livros"] }
+          }
+        },
+        {
+          "name": "400: corpo vazio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('problem+json'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "" },
+            "url": { "raw": "{{baseUrl}}/api/categorias", "host": ["{{baseUrl}}"], "path": ["api", "categorias"] }
+          }
+        },
+        {
+          "name": "409: nome de categoria duplicado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('código DUPLICADO', () => pm.expect(pm.response.json().codigo).to.eql('DUPLICADO'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"  tecnologia \",\n  \"descricao\": \"Mesmo nome, caixa diferente.\",\n  \"ativa\": true\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/categorias", "host": ["{{baseUrl}}"], "path": ["api", "categorias"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Limpeza",
+      "item": [
+        {
+          "name": "DELETE /api/livros/{id} (204)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/livros/{{livroCriadoId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "livros", "{{livroCriadoId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/categorias/{id} (204)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categorias/{{categoriaCriadaId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categorias", "{{categoriaCriadaId}}"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

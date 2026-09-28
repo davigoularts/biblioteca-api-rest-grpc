@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package biblioteca.v1;
+
+option csharp_namespace = "Biblioteca.Api.Protos";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------
+// Contrato gRPC da Biblioteca.
+//
+// Os mesmos casos de uso expostos pela API REST. As implementacoes em
+// GrpcServices/ apenas traduzem mensagem -> DTO de dominio e chamam
+// ICategoriaService / ILivroService: nenhuma regra de negocio vive aqui.
+//
+// Erros de dominio sao convertidos pelo DominioExcecaoInterceptor:
+//   ValidacaoException              -> INVALID_ARGUMENT
+//   RecursoNaoEncontradoException   -> NOT_FOUND
+//   RecursoDuplicadoException       -> ALREADY_EXISTS
+//   RegraDeNegocioException         -> FAILED_PRECONDITION
+// ---------------------------------------------------------------------------
+
+service CategoriaService {
+  rpc Listar     (ListarCategoriasRequest)   returns (ListarCategoriasResponse);
+  rpc ObterPorId (CategoriaIdRequest)        returns (CategoriaMessage);
+  rpc Criar      (CriarCategoriaRequest)     returns (CategoriaMessage);
+  rpc Atualizar  (AtualizarCategoriaRequest) returns (CategoriaMessage);
+  rpc Ativar     (CategoriaIdRequest)        returns (CategoriaMessage);
+  rpc Inativar   (CategoriaIdRequest)        returns (CategoriaMessage);
+  rpc Remover    (CategoriaIdRequest)        returns (google.protobuf.Empty);
+}
+
+service LivroService {
+  rpc Listar     (ListarLivrosRequest)   returns (ListarLivrosResponse);
+  rpc ObterPorId (LivroIdRequest)        returns (LivroMessage);
+  rpc Criar      (CriarLivroRequest)     returns (LivroMessage);
+  rpc Atualizar  (AtualizarLivroRequest) returns (LivroMessage);
+  rpc Remover    (LivroIdRequest)        returns (google.protobuf.Empty);
+  rpc Emprestar  (LivroIdRequest)        returns (LivroMessage);
+  rpc Devolver   (LivroIdRequest)        returns (LivroMessage);
+}
+
+// --------------------------------- Categoria --------------------------------
+
+message CategoriaMessage {
+  string id = 1;
+  string nome = 2;
+  string descricao = 3;
+  bool ativa = 4;
+  google.protobuf.Timestamp criada_em = 5;
+  int32 total_livros = 6;
+}
+
+message ListarCategoriasRequest {
+  // Quando true, devolve apenas categorias ativas.
+  bool apenas_ativas = 1;
+}
+
+message ListarCategoriasResponse {
+  repeated CategoriaMessage categorias = 1;
+}
+
+message CategoriaIdRequest {
+  string id = 1;
+}
+
+message CriarCategoriaRequest {
+  string nome = 1;
+  string descricao = 2;
+  bool ativa = 3;
+}
+
+message AtualizarCategoriaRequest {
+  string id = 1;
+  string nome = 2;
+  string descricao = 3;
+}
+
+// ----------------------------------- Livro ----------------------------------
+
+message LivroMessage {
+  string id = 1;
+  string titulo = 2;
+  string autor = 3;
+  string isbn = 4;
+  int32 ano_publicacao = 5;
+  string categoria_id = 6;
+  string categoria_nome = 7;
+  bool categoria_ativa = 8;
+  int32 total_exemplares = 9;
+  int32 exemplares_emprestados = 10;
+  int32 exemplares_disponiveis = 11;
+  google.protobuf.Timestamp cadastrado_em = 12;
+}
+
+message ListarLivrosRequest {
+  // Vazio = sem filtro.
+  string categoria_id = 1;
+  // Busca parcial por titulo, autor ou ISBN. Vazio = sem filtro.
+  string termo = 2;
+}
+
+message ListarLivrosResponse {
+  repeated LivroMessage livros = 1;
+}
+
+message LivroIdRequest {
+  string id = 1;
+}
+
+message CriarLivroRequest {
+  string titulo = 1;
+  string autor = 2;
+  string isbn = 3;
+  int32 ano_publicacao = 4;
+  string categoria_id = 5;
+  int32 total_exemplares = 6;
+}
+
+message AtualizarLivroRequest {
+  string id = 1;
+  string titulo = 2;
+  string autor = 3;
+  string isbn = 4;
+  int32 ano_publicacao = 5;
+  string categoria_id = 6;
+  int32 total_exemplares = 7;
+}
